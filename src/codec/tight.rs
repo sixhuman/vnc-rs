@@ -67,10 +67,12 @@ impl Decoder {
         match self.ctrl {
             8 => {
                 // fill Rect
+                // println!("fill rect: {:?}x{:?}", rect.width, rect.height);
                 self.fill_rect(format, rect, input, output_func).await
             }
             9 => {
                 // jpeg Rect
+                // println!("jpeg rect: {:?}x{:?}", rect.width, rect.height);
                 self.jpeg_rect(format, rect, input, output_func).await
             }
             10 => {
@@ -80,6 +82,7 @@ impl Decoder {
             }
             x if x & 0x8 == 0 => {
                 // basic Rect
+                // println!("basic rect: {:?}x{:?}", rect.width, rect.height);
                 self.basic_rect(format, rect, input, output_func).await
             }
             _ => {
@@ -154,7 +157,25 @@ impl Decoder {
         Fut: Future<Output = Result<(), VncError>>,
     {
         let data = self.read_data(input).await?;
-        output_func(VncEvent::JpegImage(*rect, data)).await?;
+
+        // Decompress JPEG here
+        let image = image::load_from_memory(&data).expect("Failed to load JPEG");
+        let image = image.to_rgba8();
+
+        let (width, height) = image.dimensions();
+        // println!("data len: {:?}", data.len());
+        // println!("jpeg converted image: {:?}x{:?}", width, height);
+
+        let mut pixel_data: Vec<u8> = Vec::with_capacity((width * height * 4) as usize);
+
+        for pixel in image.pixels() {
+            let pixel_data_slice = pixel.0;
+            pixel_data.extend_from_slice(&pixel_data_slice);
+        }
+
+        // println!("pixel data len: {:?}", pixel_data.len());
+
+        output_func(VncEvent::JpegImage(*rect, pixel_data)).await?;
         Ok(())
     }
 

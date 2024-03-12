@@ -16,6 +16,9 @@ pub enum VncEncoding {
     CursorPseudo = -239,
     DesktopSizePseudo = -223,
     LastRectPseudo = -224,
+    JPEGQualityLevel0 = -32,
+    JPEGQualityLevel6 = -26,
+    JPEGQualityLevel9 = -23,
 }
 
 impl From<u32> for VncEncoding {

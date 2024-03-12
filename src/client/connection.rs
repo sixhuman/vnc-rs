@@ -403,11 +403,13 @@ where
 
                     match rect.encoding {
                         VncEncoding::Raw => {
+                            // println!("received raw output");
                             raw_decoder
                                 .decode(pf, &rect.rect, stream, output_func)
                                 .await?;
                         }
                         VncEncoding::CopyRect => {
+                            // println!("received copy rect output");
                             let source_x = stream.read_u16().await?;
                             let source_y = stream.read_u16().await?;
                             let mut src_rect = rect.rect;
@@ -416,31 +418,45 @@ where
                             output_func(VncEvent::Copy(rect.rect, src_rect)).await?;
                         }
                         VncEncoding::Tight => {
+                            // println!("received tight output");
                             tight_decoder
                                 .decode(pf, &rect.rect, stream, output_func)
                                 .await?;
                         }
                         VncEncoding::Trle => {
+                            // println!("received trle output");
                             trle_decoder
                                 .decode(pf, &rect.rect, stream, output_func)
                                 .await?;
                         }
                         VncEncoding::Zrle => {
+                            // println!("received zrle output");
                             zrle_decoder
                                 .decode(pf, &rect.rect, stream, output_func)
                                 .await?;
                         }
                         VncEncoding::CursorPseudo => {
+                            // println!("received cursor output");
                             cursor.decode(pf, &rect.rect, stream, output_func).await?;
                         }
                         VncEncoding::DesktopSizePseudo => {
+                            // println!("received desktop size output");
                             output_func(VncEvent::SetResolution(
                                 (rect.rect.width, rect.rect.height).into(),
                             ))
                             .await?;
                         }
                         VncEncoding::LastRectPseudo => {
+                            // println!("received last rect output");
                             break;
+                        }
+                        VncEncoding::JPEGQualityLevel0
+                        | VncEncoding::JPEGQualityLevel6
+                        | VncEncoding::JPEGQualityLevel9 => {
+                            // println!("received jpeg quality level 0 output");
+                            tight_decoder
+                                .decode(pf, &rect.rect, stream, output_func)
+                                .await?;
                         }
                     }
                 }
