@@ -213,7 +213,7 @@ pub mod config;
 pub mod error;
 pub mod event;
 
-pub use client::VncClient;
+pub use client::VncInner;
 pub use client::VncConnector;
 pub use config::*;
 pub use error::*;

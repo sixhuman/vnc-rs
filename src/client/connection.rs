@@ -60,20 +60,20 @@ impl ImageRect {
     }
 }
 
-struct VncInner {
+pub struct VncInner {
     name: String,
     screen: (u16, u16),
-    input_ch: Sender<ClientMsg>,
-    output_ch: Receiver<VncEvent>,
-    decoding_stop: Option<oneshot::Sender<()>>,
-    net_conn_stop: Option<oneshot::Sender<()>>,
+    input_ch: Arc<Mutex<Sender<ClientMsg>>>,
+    output_ch: Arc<Mutex<Receiver<VncEvent>>>,
+    decoding_stop: Arc<Mutex<Option<oneshot::Sender<()>>>>,
+    net_conn_stop: Arc<Mutex<Option<oneshot::Sender<()>>>>,
     closed: bool,
 }
 
 /// The instance of a connected vnc client
 
 impl VncInner {
-    async fn new<S>(
+    pub async fn new<S>(
         mut stream: S,
         shared: bool,
         mut pixel_format: Option<PixelFormat>,
@@ -162,15 +162,15 @@ impl VncInner {
         Ok(Self {
             name,
             screen: (width, height),
-            input_ch: input_ch_tx,
-            output_ch: output_ch_rx,
-            decoding_stop: Some(decoding_stop_tx),
-            net_conn_stop: Some(net_conn_stop_tx),
+            input_ch: Arc::new(Mutex::new(input_ch_tx)),
+            output_ch: Arc::new(Mutex::new(output_ch_rx)),
+            decoding_stop: Arc::new(Mutex::new(Some(decoding_stop_tx))),
+            net_conn_stop: Arc::new(Mutex::new(Some(net_conn_stop_tx))),
             closed: false,
         })
     }
 
-    async fn input(&mut self, event: X11Event) -> Result<(), VncError> {
+    pub async fn input(&self, event: X11Event) -> Result<(), VncError> {
         if self.closed {
             Err(VncError::ClientNotRunning)
         } else {
@@ -190,32 +190,32 @@ impl VncInner {
                 }
                 X11Event::CopyText(text) => ClientMsg::ClientCutText(text),
             };
-            self.input_ch.send(msg).await?;
+            self.input_ch.lock().await.send(msg).await?;
             Ok(())
         }
     }
 
-    async fn recv_event(&mut self) -> Result<VncEvent, VncError> {
+    pub async fn recv_event(&self) -> Result<VncEvent, VncError> {
         if self.closed {
             Err(VncError::ClientNotRunning)
         } else {
-            match self.output_ch.recv().await {
+            match self.output_ch.lock().await.recv().await {
                 Some(e) => Ok(e),
                 None => {
-                    self.closed = true;
+                    // self.closed = true;
                     Err(VncError::ClientNotRunning)
                 }
             }
         }
     }
 
-    async fn poll_event(&mut self) -> Result<Option<VncEvent>, VncError> {
+    pub async fn poll_event(&self) -> Result<Option<VncEvent>, VncError> {
         if self.closed {
             Err(VncError::ClientNotRunning)
         } else {
-            match self.output_ch.try_recv() {
+            match self.output_ch.lock().await.try_recv() {
                 Err(TryRecvError::Disconnected) => {
-                    self.closed = true;
+                    // self.closed = true;
                     Err(VncError::ClientNotRunning)
                 }
                 Err(TryRecvError::Empty) => Ok(None),
@@ -227,13 +227,14 @@ impl VncInner {
 
     /// Stop the VNC engine and release resources
     ///
-    fn close(&mut self) -> Result<(), VncError> {
-        if self.net_conn_stop.is_some() {
-            let net_conn_stop: oneshot::Sender<()> = self.net_conn_stop.take().unwrap();
+    pub async fn close(&mut self) -> Result<(), VncError> {
+        if self.net_conn_stop.lock().await.is_some() {
+            let net_conn_stop: oneshot::Sender<()> =
+                self.net_conn_stop.lock().await.take().unwrap();
             let _ = net_conn_stop.send(());
         }
-        if self.decoding_stop.is_some() {
-            let decoding_stop = self.decoding_stop.take().unwrap();
+        if self.decoding_stop.lock().await.is_some() {
+            let decoding_stop = self.decoding_stop.lock().await.take().unwrap();
             let _ = decoding_stop.send(());
         }
         self.closed = true;
@@ -248,60 +249,74 @@ impl Drop for VncInner {
     }
 }
 
-pub struct VncClient {
-    inner: Arc<Mutex<VncInner>>,
-}
-
-impl VncClient {
-    pub(super) async fn new<S>(
-        stream: S,
-        shared: bool,
-        pixel_format: Option<PixelFormat>,
-        encodings: Vec<VncEncoding>,
-    ) -> Result<Self, VncError>
-    where
-        S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
-    {
-        Ok(Self {
-            inner: Arc::new(Mutex::new(
-                VncInner::new(stream, shared, pixel_format, encodings).await?,
-            )),
-        })
-    }
-
-    /// Input a `X11Event` from the frontend
-    ///
-    pub async fn input(&self, event: X11Event) -> Result<(), VncError> {
-        self.inner.lock().await.input(event).await
-    }
-
-    /// Receive a `VncEvent` from the engine
-    /// This function will block until a `VncEvent` is received
-    ///
-    pub async fn recv_event(&self) -> Result<VncEvent, VncError> {
-        self.inner.lock().await.recv_event().await
-    }
-
-    /// polling `VncEvent` from the engine and give it to the client
-    ///
-    pub async fn poll_event(&self) -> Result<Option<VncEvent>, VncError> {
-        self.inner.lock().await.poll_event().await
-    }
-
-    /// Stop the VNC engine and release resources
-    ///
-    pub async fn close(&self) -> Result<(), VncError> {
-        self.inner.lock().await.close()
-    }
-}
-
-impl Clone for VncClient {
+impl Clone for VncInner {
     fn clone(&self) -> Self {
         Self {
-            inner: self.inner.clone(),
+            name: self.name.clone(),
+            screen: self.screen.clone(),
+            input_ch: self.input_ch.clone(),
+            output_ch: self.output_ch.clone(),
+            decoding_stop: self.decoding_stop.clone(),
+            net_conn_stop: self.net_conn_stop.clone(),
+            closed: self.closed.clone(),
         }
     }
 }
+
+// pub struct VncClient {
+//     inner: Arc<Mutex<VncInner>>,
+// }
+
+// impl VncClient {
+//     pub(super) async fn new<S>(
+//         stream: S,
+//         shared: bool,
+//         pixel_format: Option<PixelFormat>,
+//         encodings: Vec<VncEncoding>,
+//     ) -> Result<Self, VncError>
+//     where
+//         S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+//     {
+//         Ok(Self {
+//             inner: Arc::new(Mutex::new(
+//                 VncInner::new(stream, shared, pixel_format, encodings).await?,
+//             )),
+//         })
+//     }
+
+//     /// Input a `X11Event` from the frontend
+//     ///
+//     pub async fn input(&self, event: X11Event) -> Result<(), VncError> {
+//         self.inner.lock().await.input(event).await
+//     }
+
+//     /// Receive a `VncEvent` from the engine
+//     /// This function will block until a `VncEvent` is received
+//     ///
+//     pub async fn recv_event(&self) -> Result<VncEvent, VncError> {
+//         self.inner.lock().await.recv_event().await
+//     }
+
+//     /// polling `VncEvent` from the engine and give it to the client
+//     ///
+//     pub async fn poll_event(&self) -> Result<Option<VncEvent>, VncError> {
+//         self.inner.lock().await.poll_event().await
+//     }
+
+//     /// Stop the VNC engine and release resources
+//     ///
+//     pub async fn close(&self) -> Result<(), VncError> {
+//         self.inner.lock().await.close()
+//     }
+// }
+
+// impl Clone for VncClient {
+//     fn clone(&self) -> Self {
+//         Self {
+//             inner: self.inner.clone(),
+//         }
+//     }
+// }
 
 async fn send_client_init<S>(stream: &mut S, shared: bool) -> Result<(), VncError>
 where
@@ -475,7 +490,7 @@ where
 }
 
 async fn async_connection_process_loop<S>(
-    mut stream: S,
+    stream: S,
     mut input_ch: Receiver<ClientMsg>,
     conn_ch: Sender<std::io::Result<Vec<u8>>>,
     mut stop_ch: oneshot::Receiver<()>,
@@ -483,28 +498,30 @@ async fn async_connection_process_loop<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    let mut buffer = [0; 65535];
-    let mut pending = 0;
+    let (mut rh, mut wh) = tokio::io::split(stream);
 
-    // main traffic loop
-    while let Err(oneshot::error::TryRecvError::Empty) = stop_ch.try_recv() {
-        if pending > 0 {
-            match conn_ch.try_send(Ok(buffer[0..pending].to_owned())) {
-                Err(TrySendError::Full(_message)) => (),
-                Err(TrySendError::Closed(_message)) => break,
-                Ok(()) => pending = 0,
+    let jh = tokio::spawn(async move {
+        let mut buffer = [0; 65535];
+        let mut pending = 0;
+
+        loop {
+            if pending > 0 {
+                match conn_ch.try_send(Ok(buffer[0..pending].to_owned())) {
+                    Err(TrySendError::Full(_message)) => (),
+                    Err(TrySendError::Closed(_message)) => break,
+                    Ok(()) => pending = 0,
+                }
             }
-        }
 
-        tokio::select! {
-            result = stream.read(&mut buffer), if pending == 0 => {
-                match result {
+            if pending == 0 {
+                match rh.read(&mut buffer).await {
                     Ok(nread) => {
+                        println!("read {} bytes", nread);
                         if nread > 0 {
                             match conn_ch.try_send(Ok(buffer[0..nread].to_owned())) {
                                 Err(TrySendError::Full(_message)) => pending = nread,
                                 Err(TrySendError::Closed(_message)) => break,
-                                Ok(()) => ()
+                                Ok(()) => (),
                             }
                         } else {
                             // According to the tokio's Doc
@@ -518,18 +535,24 @@ where
                         error!("{}", e.to_string());
                         break;
                     }
-                }
+                };
             }
+        }
+    });
+
+    // main traffic loop
+    while let Err(oneshot::error::TryRecvError::Empty) = stop_ch.try_recv() {
+        tokio::select! {
             Some(msg) = input_ch.recv() => {
-                msg.write(&mut stream).await?;
+                msg.write(&mut wh).await?;
             }
         }
     }
 
     // notify the decoding thread
-    let _ = conn_ch
-        .send(Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof)))
-        .await;
-
+    // let _ = conn_ch
+    //     .send(Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof)))
+    //     .await;
+    jh.await.expect("Error with join handle");
     Ok(())
 }

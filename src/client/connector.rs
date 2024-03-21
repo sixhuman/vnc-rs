@@ -1,6 +1,6 @@
 use super::{
     auth::{AuthHelper, AuthResult, SecurityType},
-    connection::VncClient,
+    connection::VncInner,
 };
 use std::future::Future;
 use std::pin::Pin;
@@ -16,7 +16,7 @@ where
 {
     Handshake(VncConnector<S, F>),
     Authenticate(VncConnector<S, F>),
-    Connected(VncClient),
+    Connected(VncInner),
 }
 
 impl<S, F> VncState<S, F>
@@ -132,7 +132,7 @@ where
                     info!("auth done, client connected");
 
                     Ok(VncState::Connected(
-                        VncClient::new(
+                        VncInner::new(
                             connector.stream,
                             connector.allow_shared,
                             connector.pixel_format,
@@ -146,7 +146,7 @@ where
         })
     }
 
-    pub fn finish(self) -> Result<VncClient, VncError> {
+    pub fn finish(self) -> Result<VncInner, VncError> {
         if let VncState::Connected(client) = self {
             Ok(client)
         } else {
