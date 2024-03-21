@@ -452,6 +452,7 @@ where
                         }
                         VncEncoding::JPEGQualityLevel0
                         | VncEncoding::JPEGQualityLevel6
+                        | VncEncoding::JPEGQualityLevel4
                         | VncEncoding::JPEGQualityLevel9 => {
                             // println!("received jpeg quality level 0 output");
                             tight_decoder

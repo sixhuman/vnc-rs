@@ -17,6 +17,7 @@ pub enum VncEncoding {
     DesktopSizePseudo = -223,
     LastRectPseudo = -224,
     JPEGQualityLevel0 = -32,
+    JPEGQualityLevel4 = -28,
     JPEGQualityLevel6 = -26,
     JPEGQualityLevel9 = -23,
 }
