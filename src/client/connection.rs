@@ -175,15 +175,17 @@ impl VncInner {
             Err(VncError::ClientNotRunning)
         } else {
             let msg = match event {
-                X11Event::Refresh => ClientMsg::FramebufferUpdateRequest(
-                    Rect {
-                        x: 0,
-                        y: 0,
-                        width: self.screen.0,
-                        height: self.screen.1,
-                    },
-                    1,
-                ),
+                X11Event::Refresh => {
+                    ClientMsg::FramebufferUpdateRequest(
+                        Rect {
+                            x: 0,
+                            y: 0,
+                            width: self.screen.0,
+                            height: self.screen.1,
+                        },
+                        1,
+                    )
+                }
                 X11Event::KeyEvent(key) => ClientMsg::KeyEvent(key.keycode, key.down),
                 X11Event::PointerEvent(mouse) => {
                     ClientMsg::PointerEvent(mouse.position_x, mouse.position_y, mouse.bottons)
@@ -516,7 +518,6 @@ where
             if pending == 0 {
                 match rh.read(&mut buffer).await {
                     Ok(nread) => {
-                        println!("read {} bytes", nread);
                         if nread > 0 {
                             match conn_ch.try_send(Ok(buffer[0..nread].to_owned())) {
                                 Err(TrySendError::Full(_message)) => pending = nread,
@@ -542,10 +543,8 @@ where
 
     // main traffic loop
     while let Err(oneshot::error::TryRecvError::Empty) = stop_ch.try_recv() {
-        tokio::select! {
-            Some(msg) = input_ch.recv() => {
-                msg.write(&mut wh).await?;
-            }
+        if let Some(msg) = input_ch.recv().await {
+            msg.write(&mut wh).await?;
         }
     }
 
